@@ -53,11 +53,20 @@
     })
     try {
       const out = await api(endpoint, { method: (form.dataset.method || 'post').toUpperCase(), body: payload })
-      if (form.dataset.toast) toast(form.dataset.toast, 'ok')
-      else toast(out?.message || 'Saved', 'ok')
-      if (form.dataset.reload === '1') setTimeout(() => location.reload(), 450)
-      else if (form.dataset.redirect) setTimeout(() => { location.href = form.dataset.redirect.replace('{id}', out?.id ?? '') }, 350)
-      else if (form.dataset.onDone) window[form.dataset.onDone]?.(out)
+      // Server-provided redirect wins; fall back to the data-redirect attribute.
+      const dest = out?.redirect || form.dataset.redirect
+      if (form.dataset.reload === '1') {
+        if (form.dataset.toast) toast(form.dataset.toast, 'ok')
+        else if (dest === undefined && out?.message) toast(out.message, 'ok')
+        setTimeout(() => location.reload(), 300)
+      } else if (dest) {
+        // Never flash a generic "Saved" toast when we are navigating away.
+        if (form.dataset.toast) toast(form.dataset.toast, 'ok')
+        setTimeout(() => { location.href = dest.replace('{id}', out?.id ?? '') }, 220)
+      } else {
+        toast(form.dataset.toast || out?.message || 'Saved', 'ok')
+        if (form.dataset.onDone) window[form.dataset.onDone]?.(out)
+      }
       form.dispatchEvent(new CustomEvent('api:done', { detail: out, bubbles: true }))
     } catch (err) {
       toast(err.message, 'err')

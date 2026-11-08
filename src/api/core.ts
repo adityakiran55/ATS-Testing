@@ -49,7 +49,16 @@ api.post('/auth/login', async (c) => {
     entityType: 'user', entityId: user.id, action: 'login', actorId: user.id,
     meta: { email: user.email }
   })
-  return c.json({ id: user.id, name: user.name, role: user.role, redirect: next || '/' })
+  // `message` + `redirect` drive the client runtime: the client prefers
+  // out.redirect and suppresses the generic "Saved" toast on navigation.
+  return c.json({
+    ok: true,
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    message: `Welcome back, ${String(user.name).split(' ')[0]}`,
+    redirect: next || '/'
+  })
 })
 
 api.post('/auth/logout', async (c) => {
