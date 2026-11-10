@@ -17,6 +17,9 @@ export type AuthUser = {
   role: Role
   title: string | null
   department: string | null
+  /** N5/D10 — every authenticated request carries its tenant. */
+  tenant_id: number
+  tenant_region: string
 }
 
 export type AppEnv = { Bindings: Bindings; Variables: { user: AuthUser | null } }
@@ -87,14 +90,22 @@ export const loadUser = async (c: Context<AppEnv>): Promise<AuthUser | null> => 
   const token = getCookie(c, SESSION_COOKIE)
   if (!token) return null
   const row = await c.env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.title, u.department
-       FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`
+    `SELECT u.id, u.email, u.name, u.role, u.title, u.department,
+            u.tenant_id, COALESCE(t.region,'IN') AS tenant_region
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN tenants t ON t.id = u.tenant_id
+      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1
+        AND COALESCE(t.status,'active') = 'active'`
   )
     .bind(token, nowIso())
     .first<any>()
   if (!row) return null
-  return row as AuthUser
+  return {
+    ...row,
+    tenant_id: Number(row.tenant_id || 1),
+    tenant_region: row.tenant_region || 'IN'
+  } as AuthUser
 }
 
 /** Populates c.get('user'); does not block. */

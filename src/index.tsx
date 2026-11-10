@@ -5,6 +5,7 @@ import { can } from './lib/rbac'
 import { nowIso, parseJson, pct } from './lib/util'
 import { api } from './api/index'
 import { api as coreApi } from './api/core'
+import { phasesApi } from './api/phases'
 import { aiApi } from './modules/ai/api'
 import { serveStatic } from 'hono/cloudflare-workers'
 
@@ -23,6 +24,9 @@ import {
 import { SlaPage, AutomationPage, SettingsPage } from './pages/ops'
 import { SpecPage, FEATURES } from './pages/spec'
 import { AiDashboardPage, AiProvidersPage, AiModelsPage, AiFeaturesPage, AiUsagePage, AiLogsPage, AiSecurityPage } from './pages/ai'
+import {
+  TaxonomyPage, ScreeningQueuePage, ScreeningRunPage, JdPage, BoardPage, CompliancePage
+} from './pages/phases'
 
 import {
   loadDashboard, listJobs, getJob, getCandidate, listInterviews, getInterview,
@@ -37,6 +41,13 @@ import {
   loadRequestLogs, loadAiAuditLog, loadAiCounts
 } from './modules/ai/queries'
 import { loadUsage } from './modules/ai/gateway'
+import { loadGraph, taxonomySummary, listVersions, listSuggestions, browseNodes } from './lib/taxonomy'
+import { loadReviewQueue, screeningStats, loadRun, listRunsForJob } from './lib/screening'
+import { validateJd, listJdVersions, poolCoveragePreview } from './lib/jd'
+import { loadBoard, loadStages, pipelineFunnel } from './lib/pipeline'
+import {
+  complianceOverview, computeAdverseImpact, listAdverseImpactReports, loadOversightLog, oversightStats
+} from './lib/compliance'
 
 const app = new Hono<AppEnv>()
 
@@ -48,6 +59,7 @@ app.use(renderer)
 
 app.route('/api', api)
 app.route('/api', coreApi)
+app.route('/api', phasesApi)
 app.route('/api/ai', aiApi)
 
 /* ------------------------------------------------------------------- ai admin */
@@ -665,6 +677,77 @@ app.get('/spec', requireAuth, async (c) => {
         audit: Number(auditCount?.n || 0)
       }}
     />
+  )
+})
+
+/* ------------------------------------------------------- v3.0 phase screens */
+app.get('/taxonomy', requirePermission('candidate.read'), async (c) => {
+  const user = currentUser(c)
+  const kind = c.req.query('kind') || ''
+  const q = c.req.query('q') || ''
+  const [summary, versions, suggestions, nodes] = await Promise.all([
+    taxonomySummary(c.env.DB), listVersions(c.env.DB),
+    listSuggestions(c.env.DB, 'pending'), browseNodes(c.env.DB, { kind: kind || undefined, q: q || undefined })
+  ])
+  return c.render(
+    <TaxonomyPage user={user} data={{ summary, versions, suggestions, nodes, kindFilter: kind, q }} />
+  )
+})
+
+app.get('/screening', requirePermission('application.read'), async (c) => {
+  const user = currentUser(c)
+  const [queue, stats] = await Promise.all([loadReviewQueue(c.env.DB), screeningStats(c.env.DB)])
+  return c.render(<ScreeningQueuePage user={user} data={{ queue, stats }} />)
+})
+
+app.get('/screening/runs/:id', requirePermission('application.read'), async (c) => {
+  const user = currentUser(c)
+  const run = await loadRun(c.env.DB, Number(c.req.param('id')))
+  if (!run) return c.notFound()
+  return c.render(<ScreeningRunPage user={user} data={{ run }} />)
+})
+
+app.get('/board', requirePermission('application.read'), async (c) => {
+  const user = currentUser(c)
+  const jobId = c.req.query('job') ? Number(c.req.query('job')) : undefined
+  const [board, funnel, jobsRes] = await Promise.all([
+    loadBoard(c.env.DB, { jobId }),
+    pipelineFunnel(c.env.DB, jobId),
+    c.env.DB.prepare(`SELECT id, title, code FROM jobs WHERE status IN ('open','paused','approved') ORDER BY title`).all<any>()
+  ])
+  return c.render(
+    <BoardPage user={user} data={{ board, funnel, jobs: jobsRes.results, jobId }} />
+  )
+})
+
+app.get('/compliance', requirePermission('audit.read'), async (c) => {
+  const user = currentUser(c)
+  const [overview, impact, reports] = await Promise.all([
+    complianceOverview(c.env.DB, user.tenant_id ?? 1),
+    computeAdverseImpact(c.env.DB, { tenantId: user.tenant_id ?? 1 }),
+    listAdverseImpactReports(c.env.DB, 10)
+  ])
+  return c.render(<CompliancePage user={user} data={{ overview, impact, reports }} />)
+})
+
+app.get('/jobs/:id/jd', requirePermission('job.read'), async (c) => {
+  const user = currentUser(c)
+  const jobId = Number(c.req.param('id'))
+  const job = await c.env.DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first<any>()
+  if (!job) return c.notFound()
+  const graph = await loadGraph(c.env.DB)
+  const [versions, coverage] = await Promise.all([
+    listJdVersions(c.env.DB, jobId),
+    poolCoveragePreview(c.env.DB, job, graph)
+  ])
+  const analysis = validateJd(job, graph)
+  const requirements = versions.length
+    ? (await c.env.DB.prepare(
+        `SELECT * FROM jd_requirements WHERE jd_version_id = ? ORDER BY kind DESC, id`
+      ).bind(versions[0].id).all<any>()).results
+    : []
+  return c.render(
+    <JdPage user={user} data={{ job, versions, analysis, coverage, requirements }} />
   )
 })
 
