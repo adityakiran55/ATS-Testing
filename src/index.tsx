@@ -5,6 +5,7 @@ import { can } from './lib/rbac'
 import { nowIso, parseJson, pct } from './lib/util'
 import { api } from './api/index'
 import { api as coreApi } from './api/core'
+import { aiApi } from './modules/ai/api'
 import { serveStatic } from 'hono/cloudflare-workers'
 
 import { LoginPage } from './pages/login'
@@ -21,6 +22,7 @@ import {
 } from './pages/analytics'
 import { SlaPage, AutomationPage, SettingsPage } from './pages/ops'
 import { SpecPage, FEATURES } from './pages/spec'
+import { AiDashboardPage, AiProvidersPage, AiModelsPage, AiFeaturesPage, AiUsagePage, AiLogsPage, AiSecurityPage } from './pages/ai'
 
 import {
   loadDashboard, listJobs, getJob, getCandidate, listInterviews, getInterview,
@@ -30,6 +32,11 @@ import { searchCandidates, rediscoverForJob } from './lib/searchService'
 import { summarizeCandidate, summarizeFeedback, sourceInsights } from './lib/ai'
 import { loadAnalytics } from './lib/metrics'
 import { loadAging, loadWorkload, loadRequisitionAging } from './lib/sla'
+import {
+  loadProviders, loadModels, loadFeatureConfig, loadAiSettings,
+  loadRequestLogs, loadAiAuditLog, loadAiCounts
+} from './modules/ai/queries'
+import { loadUsage } from './modules/ai/gateway'
 
 const app = new Hono<AppEnv>()
 
@@ -41,6 +48,63 @@ app.use(renderer)
 
 app.route('/api', api)
 app.route('/api', coreApi)
+app.route('/api/ai', aiApi)
+
+/* ------------------------------------------------------------------- ai admin */
+app.get('/ai', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const [providers, features, counts, settings] = await Promise.all([
+    loadProviders(c.env.DB), loadFeatureConfig(c.env.DB), loadAiCounts(c.env.DB), loadAiSettings(c.env.DB)
+  ])
+  const usage = await loadUsage(c.env.DB, 30)
+  return c.render(
+    <AiDashboardPage user={user} data={{ providers, features, usage, counts, settings }} />
+  )
+})
+
+app.get('/ai/providers', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  return c.render(<AiProvidersPage user={user} data={{ providers: await loadProviders(c.env.DB) }} />)
+})
+
+app.get('/ai/models', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const [models, providers] = await Promise.all([loadModels(c.env.DB), loadProviders(c.env.DB)])
+  return c.render(<AiModelsPage user={user} data={{ models, providers }} />)
+})
+
+app.get('/ai/features', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const [features, providers, models] = await Promise.all([
+    loadFeatureConfig(c.env.DB), loadProviders(c.env.DB), loadModels(c.env.DB)
+  ])
+  return c.render(<AiFeaturesPage user={user} data={{ features, providers, models }} />)
+})
+
+app.get('/ai/usage', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const days = Number(c.req.query('days') || 30)
+  return c.render(<AiUsagePage user={user} data={{ usage: await loadUsage(c.env.DB, days), days }} />)
+})
+
+app.get('/ai/logs', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const q = c.req.query()
+  const [logs, audit, providers] = await Promise.all([
+    loadRequestLogs(c.env.DB, { provider: q.provider, feature: q.feature, status: q.status, limit: 80 }),
+    loadAiAuditLog(c.env.DB),
+    loadProviders(c.env.DB)
+  ])
+  return c.render(<AiLogsPage user={user} data={{ logs, audit, providers, filters: q }} />)
+})
+
+app.get('/ai/security', requirePermission('ai.read'), async (c) => {
+  const user = currentUser(c)
+  const [settings, providers] = await Promise.all([loadAiSettings(c.env.DB), loadProviders(c.env.DB)])
+  return c.render(
+    <AiSecurityPage user={user} data={{ settings, providers, days: settings.request_log_retention_days || 90 }} />
+  )
+})
 
 /* ------------------------------------------------------------------- login */
 app.get('/login', async (c) => {
@@ -595,8 +659,8 @@ app.get('/spec', requireAuth, async (c) => {
     <SpecPage
       user={user}
       stats={{
-        tests: 96,
-        passing: 96,
+        tests: 159,
+        passing: 159,
         tables: Number(tables?.n || 0),
         audit: Number(auditCount?.n || 0)
       }}

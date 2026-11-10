@@ -20,6 +20,7 @@ export type Permission =
   | 'sla.read' | 'sla.manage'
   | 'admin.users' | 'admin.settings' | 'audit.read' | 'spec.read'
   | 'manager.review'
+  | 'ai.read' | 'ai.configure' | 'ai.invoke' | 'ai.usage'
 
 const R = (...p: Permission[]) => p
 
@@ -38,7 +39,8 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'pool.read', 'pool.manage',
     'analytics.read', 'analytics.export',
     'sla.read', 'sla.manage',
-    'admin.users', 'admin.settings', 'audit.read', 'spec.read', 'manager.review'
+    'admin.users', 'admin.settings', 'audit.read', 'spec.read', 'manager.review',
+    'ai.read', 'ai.configure', 'ai.invoke', 'ai.usage'
   ],
   recruiter: [
     'job.read', 'job.create', 'job.edit', 'job.submit', 'job.close',
@@ -54,7 +56,8 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'pool.read', 'pool.manage',
     'analytics.read', 'analytics.export',
     'sla.read', 'sla.manage',
-    'audit.read', 'spec.read'
+    'audit.read', 'spec.read',
+    'ai.read', 'ai.invoke'
   ],
   hiring_manager: [
     'job.read', 'job.create', 'job.edit', 'job.approve',
@@ -67,7 +70,8 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'pool.read',
     'analytics.read',
     'sla.read',
-    'spec.read', 'manager.review'
+    'spec.read', 'manager.review',
+    'ai.read', 'ai.invoke'
   ],
   interviewer: [
     'candidate.read', 'application.read',

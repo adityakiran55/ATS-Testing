@@ -45,6 +45,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: '/sla', label: 'SLA & aging', icon: 'fa-stopwatch', perm: 'sla.read' },
       { href: '/automation', label: 'Automation', icon: 'fa-bolt', perm: 'automation.read' },
+      { href: '/ai', label: 'AI integration', icon: 'fa-robot', perm: 'ai.read' },
       { href: '/settings', label: 'Settings', icon: 'fa-gear', perm: 'admin.settings' },
       { href: '/spec', label: 'Spec & traceability', icon: 'fa-list-check' }
     ]
