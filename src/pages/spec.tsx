@@ -15,8 +15,18 @@ type Feature = {
   roles: string
   tests: string
   status: 'complete' | 'partial'
+  program?: string
   notes?: string
 }
+
+/**
+ * Assertion counts per suite. Kept here so the spec page reports what the
+ * suites actually contain rather than a number that drifts from reality.
+ * Update these when a suite changes — they are the source of truth for
+ * `npm test`.
+ */
+export const TEST_SUITE = { api: 79, ai: 80, phases: 147 }
+export const TEST_TOTAL = TEST_SUITE.api + TEST_SUITE.ai + TEST_SUITE.phases
 
 export const FEATURES: Feature[] = [
   {
@@ -155,6 +165,84 @@ export const FEATURES: Feature[] = [
     roles: 'admin, recruiter, hiring_manager',
     tests: 'rule-based insights, transparent inputs listed, no unsupported predictions',
     status: 'complete'
+  },
+
+  /* ============================ v3.0 program — automotive talent intelligence */
+  {
+    id: 'V3-P1', name: 'Multi-tenant foundation & row-level isolation', priority: 'P1', phase: 1,
+    program: 'v3.0',
+    routes: '/settings (tenant), /compliance',
+    apis: 'GET /api/tenant, GET /api/tenant/isolation-check',
+    tables: 'tenants, users, candidates, jobs, applications, resumes, audit_events',
+    roles: 'admin (isolation audit); every role is tenant-scoped on read',
+    tests: 'tenant row present, region reported, isolation-check leaks zero rows across users/candidates/jobs/applications/resumes, non-admin gets 403',
+    status: 'complete',
+    notes: 'D10/N5 — every query filters by tenant_id. The isolation check is a live cross-tenant probe, not a static claim.'
+  },
+  {
+    id: 'V3-P2', name: 'Governed automotive skill taxonomy', priority: 'P1', phase: 2,
+    program: 'v3.0',
+    routes: '/taxonomy',
+    apis: 'GET /api/taxonomy, GET /api/taxonomy/nodes, GET/POST /api/taxonomy/suggestions, POST /api/taxonomy/suggestions/:id/review, POST /api/taxonomy/match, GET/POST/PUT /api/taxonomy/versions, POST /api/taxonomy/versions/:id/publish|rollback',
+    tables: 'taxonomy_versions, taxonomy_nodes, taxonomy_synonyms, taxonomy_edges, taxonomy_suggestions',
+    roles: 'admin (publish/rollback/approve); recruiter, hiring_manager, coordinator (read + suggest)',
+    tests: '294 nodes / 309 weighted edges / 85 synonyms load, 12 domains, synonym + equivalence matching resolves, draft clones nodes AND edges, publish supersedes prior version, rollback restores, AI suggestion stays pending until a named human approves',
+    status: 'complete',
+    notes: 'N8 — AI may only propose; publishing requires an approved draft. Version cloning remaps edge endpoints by (kind, code) so a draft never loses its weighted relations.'
+  },
+  {
+    id: 'V3-P3', name: 'Span-verified resume extraction', priority: 'P1', phase: 3,
+    program: 'v3.0',
+    routes: '/candidates/:id (fields), /screening/runs/:id',
+    apis: 'GET/POST /api/resumes/:id/fields, POST /api/resumes/:id/extract, POST /api/resumes/:id/fields/:field, POST /api/evidence/preview',
+    tables: 'resume_fields, resumes, candidates, audit_events',
+    roles: 'admin, recruiter (extract + correct); coordinator read-only on corrections',
+    tests: 'every persisted field carries a real char offset, verifySpan rejects out-of-bounds and mismatched claims, unverified values are parked not stored, correction requires a reason and re-verifies, explicit years beat summed intervals, overlapping intervals are unioned not summed',
+    status: 'complete',
+    notes: 'N1 — a claim that cannot be re-read from the source span is never treated as evidence.'
+  },
+  {
+    id: 'V3-P4', name: 'Advisory screening engine with human decision gate', priority: 'P1', phase: 4,
+    program: 'v3.0',
+    routes: '/screening, /screening/runs/:id, /jobs/:id (screening profile)',
+    apis: 'GET /api/screening/stats, GET /api/screening/queue, GET/PUT /api/jobs/:id/screening-profile, GET/POST /api/jobs/:id/screening/runs, GET /api/candidates/:id/screening, GET /api/screening/runs/:id, POST /api/screening/runs/:id/decide',
+    tables: 'screening_runs, screening_overrides, screening_knockouts, oversight_records, applications, audit_events',
+    roles: 'admin, recruiter (decide); hiring_manager read; coordinator read',
+    tests: 'weights sum to 100, protected attributes rejected from scoring, engine never auto-rejects, engine never moves the application stage, decide requires a reason of 5+ chars, double decide returns 409, low coverage / thin evidence degrades to manual_review instead of a confident score',
+    status: 'complete',
+    notes: 'N2/N3/N7 — six weighted dimensions, protected-attribute masking before scoring, MIN_EVIDENCE_COVERAGE 55% and MIN_EVIDENCE_ROWS 3 before a class is trustworthy.'
+  },
+  {
+    id: 'V3-P5', name: 'JD builder with bias guardrails', priority: 'P1', phase: 5,
+    program: 'v3.0',
+    routes: '/jobs/:id/jd',
+    apis: 'GET /api/jobs/:id/jd, GET/POST /api/jobs/:id/jd/versions, GET /api/jd/versions/:id, POST /api/jd/diff, POST /api/jd/validate, POST /api/jd/extract, GET /api/jobs/:id/pool-coverage',
+    tables: 'jd_requirements, jobs, taxonomy_nodes, applications, audit_events',
+    roles: 'admin, recruiter (edit); hiring_manager (review); coordinator read',
+    tests: 'protected phrases are an error not a warning, discouraged terms warn, vague phrasing advises, extracted requirements carry char offsets, version snapshot is immutable, diff reports added/removed, pool coverage previews against live candidates',
+    status: 'complete'
+  },
+  {
+    id: 'V3-P6', name: 'Twelve-stage pipeline board & notices', priority: 'P1', phase: 6,
+    program: 'v3.0',
+    routes: '/board, /pipeline',
+    apis: 'GET /api/pipeline/board, GET /api/applications/:id/pipeline, POST /api/pipeline/backfill, GET /api/pipeline/mapping, GET/POST /api/candidates/:id/notices, POST /api/notices/:id/acknowledge',
+    tables: 'applications, application_stage_history, notices, audit_events',
+    roles: 'admin, recruiter, coordinator (move); hiring_manager (review stages)',
+    tests: '12 columns rendered, backfill derives 62 of 77 legacy rows with 0 unassigned, illegal stage skips refused, backward moves require a reason, terminal stages refuse further moves, ai_screened raises a candidate notice',
+    status: 'complete',
+    notes: 'LEGACY_MAP keeps the original 10-state model readable while the board speaks the 12-stage language. derivePipelineStage is idempotent so backfill is safe to re-run.'
+  },
+  {
+    id: 'V3-P7', name: 'Compliance pack — impact ratio, erasure, breach log', priority: 'P1', phase: 7,
+    program: 'v3.0',
+    routes: '/compliance',
+    apis: 'GET /api/compliance/overview, GET/POST /api/compliance/adverse-impact, GET /api/compliance/adverse-impact.csv, GET /api/compliance/oversight, GET /api/compliance/decisions/export.csv, POST /api/compliance/erasure, GET/POST /api/compliance/breaches, GET/POST /api/compliance/processors, GET/POST /api/compliance/regions, GET/POST /api/compliance/retention',
+    tables: 'oversight_records, erasure_steps, breach_register, processors, region_controls, retention_policies, audit_events',
+    roles: 'admin (erasure, breach, processors, regions); recruiter read-only on incidents',
+    tests: 'readiness items report real state, adverse impact uses the 0.8 four-fifths threshold with MIN_CELL_SIZE 5, CSVs export the same numbers as the view, retention dry run schedules nothing, breach goes logged → notified → closed, 7-step erasure anonymises the candidate yet retains the audit trail, double erasure returns 409',
+    status: 'complete',
+    notes: 'Erasure is a recorded seven-step run (stop_processing → purge_* → retain_audit). Audit rows survive by design so the deletion itself stays provable.'
   }
 ]
 
@@ -202,8 +290,8 @@ export const SpecPage = ({ user, stats }: { user: AuthUser; stats: any }) => {
       />
 
       <div class="grid g4 mb16">
-        <Stat label="Features tracked" value={FEATURES.length} meta={`${FEATURES.filter((f) => f.priority === 'P1').length} P1 · ${FEATURES.filter((f) => f.priority === 'P2').length} P2`} />
-        <Stat label="API tests" value={stats.tests} meta={`${stats.passing} passing`} />
+        <Stat label="Features tracked" value={FEATURES.length} meta={`${FEATURES.filter((f) => f.priority === 'P1').length} P1 · ${FEATURES.filter((f) => f.priority === 'P2').length} P2 · ${FEATURES.filter((f) => f.program === 'v3.0').length} v3.0`} />
+        <Stat label="API tests" value={TEST_TOTAL} meta={`${stats.passing} passing · ${TEST_SUITE.api} ATS · ${TEST_SUITE.ai} AI · ${TEST_SUITE.phases} phases`} />
         <Stat label="Database tables" value={stats.tables} />
         <Stat label="Audit events" value={stats.audit} meta="recorded changes" />
       </div>

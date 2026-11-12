@@ -1,7 +1,9 @@
-# VSolutions ATS — Applicant Tracking System v2.0
+# VSolutions ATS — automotive talent intelligence platform
 
 ATS-only recruiting platform covering requisition intake → sourcing → selection → offers → onboarding handoff,
-with recruitment analytics and a **centralized multi-provider AI layer**.
+with recruitment analytics, a **centralized multi-provider AI layer**, and the **v3.0 automotive talent
+intelligence program** (multi-tenancy, governed skill taxonomy, span-verified extraction, advisory screening
+engine, JD builder, twelve-stage pipeline, compliance pack).
 Built on **Hono + Cloudflare Workers/Pages + D1**.
 
 **Repository**: https://github.com/adityakiran55/ATS-Testing (branch `main`)
@@ -10,9 +12,10 @@ Built on **Hono + Cloudflare Workers/Pages + D1**.
 
 | | |
 |---|---|
-| Build | ✅ `npm run build` (467 kB worker, 121 kB gzip) |
-| Tests | ✅ `npm test` — **159/159 passing** (79 ATS + 80 AI) |
-| Pages | ✅ All 25 routes render 200 |
+| Build | ✅ `npm run build` (605 kB worker, 157 kB gzip, 112 modules) |
+| Tests | ✅ `npm test` — **306/306 passing** (79 ATS + 80 AI + 147 phases) |
+| Pages | ✅ All 31 routes render 200 |
+| Database | 76 tables · 6 migrations · 138 audit events in the seeded instance |
 | Deployment | ⏸ **Awaiting user choice** between `cf-byok-deploy` (own Cloudflare account) and `gsk-hosted-deploy` (Genspark-managed) |
 
 ## Quick start
@@ -21,7 +24,8 @@ Built on **Hono + Cloudflare Workers/Pages + D1**.
 npm run db:reset      # migrate + seed local D1
 npm run build
 pm2 start ecosystem.config.cjs
-npm test              # 79 acceptance tests
+npm test              # all three suites (306 assertions)
+npm run test:phases   # phases 1–7 only
 ```
 
 **Demo accounts** — password `Password123!`
@@ -56,6 +60,65 @@ npm test              # 79 acceptance tests
 
 `/spec` renders a live traceability matrix (feature → route → API → tables → roles → tests), the
 permissions matrix generated from the same RBAC constant the app uses, and the state-transition tables.
+
+## v3.0 program — automotive talent intelligence (Phases 1–7)
+
+The v3.0 master specification locks an automotive-first, India-first multi-tenant SaaS. Its stated
+stack is Laravel/PHP + PostgreSQL + pgvector + Redis/Horizon + Inertia/Vue. **None of that can run on
+Cloudflare Workers** (no PHP, no sockets, no long-running process, no Postgres server). Rather than
+claiming a stack the runtime cannot host, the phases were built on the existing deployable
+Hono + D1 stack, preserving every *behavioural* non-negotiable. The stack deviation is disclosed
+below, not hidden.
+
+| Phase | Capability | Route | Non-negotiable honoured |
+|---|---|---|---|
+| 1 | Multi-tenant foundation, row-level isolation, live isolation probe | `/settings`, API | **N5 / D10** — every query is tenant-scoped; `/api/tenant/isolation-check` proves zero cross-tenant leakage at runtime |
+| 2 | Governed automotive taxonomy: 294 nodes, 85 synonyms, 309 weighted edges, 12 domains | `/taxonomy` | **N8** — AI may only *propose*; publishing needs a named human approver; version history is immutable and rollback-able |
+| 3 | Span-verified resume extraction with real character offsets | candidate profile | **N1** — a field without a re-readable source span is never treated as evidence |
+| 4 | Advisory screening engine: 6 weighted dimensions, knock-outs, human gate | `/screening` | **N2 / N3 / N7** — protected attributes masked before scoring; the engine never auto-rejects and never moves the application |
+| 5 | JD builder with bias guardrails, requirement extraction, version diff, pool coverage | `/jobs/:id/jd` | Protected phrases are a hard error; every extracted requirement carries an offset |
+| 6 | Twelve-stage pipeline board with legal-transition enforcement and candidate notices | `/board` | Illegal skips refused; backward moves require a reason; terminal stages are final |
+| 7 | Compliance pack: adverse impact, erasure, breach register, processors, regions, retention | `/compliance` | **N1** audit trail survives erasure by design, so a deletion stays provable |
+
+### Non-negotiables and where they live in code
+
+| ID | Rule | Enforcement |
+|---|---|---|
+| N1 | Every claim resolves to a real span of the source | `lib/evidence.ts` → `verifySpan`, re-checked on read and on correction |
+| N2 | A human, named, with a reason, decides | `lib/screening.ts` → `decideRun` requires a 5+ char reason; writes `overseer_records` + audit |
+| N3 | Protected attributes never enter scoring | `maskProtected()` runs before any dimension is computed |
+| N5 | Tenant isolation on every read/write | `tenant_id` predicate on all queries; `/api/tenant/isolation-check` is a live cross-tenant probe |
+| N7 | The engine can never auto-reject | `autoRejected: false`, `requiresHumanDecision: true` are returned by every run |
+| N8 | Taxonomy grows only through human approval | suggestions stay `pending` until `POST /api/taxonomy/suggestions/:id/review` by an approver |
+
+### Screening engine mechanics
+
+Six dimensions — `must_have_coverage` (40), `skills_depth` (20), `experience` (18), `tooling` (12),
+`education` (5), `recency` (5) — weights sum to 100 and are asserted in tests. A score is only
+trusted when `MIN_EVIDENCE_ROWS = 3` verified rows and `MIN_EVIDENCE_COVERAGE = 55` are met;
+below either threshold the run degrades to `manual_review` instead of emitting a confident number.
+
+### v3.0 tables (migrations `0004_phases.sql`, `0005_taxonomy_seed.sql`, `0006_phase_support.sql`)
+
+`tenants` · `taxonomy_versions` · `taxonomy_nodes` · `taxonomy_synonyms` · `taxonomy_edges` ·
+`taxonomy_suggestions` · `resume_fields` · `screening_runs` · `screening_overrides` ·
+`screening_knockouts` · `oversight_records` · `jd_requirements` · `erasure_steps` · `notices` ·
+`breach_register` · `processors` · `region_controls` · `retention_policies` — additive only;
+no ATS v2.0 table was altered destructively.
+
+### Stack deviation (D12 disclosure)
+
+The v3.0 prompt's own decision D12 requires stopping and asking when the repository holds a working
+backend in another stack. This repository does — Hono/D1, deployed and tested. The phases were
+therefore implemented against it rather than rewritten in PHP. What this costs:
+
+| Required by v3.0 | Here | Consequence |
+|---|---|---|
+| PostgreSQL + pgvector | D1 (SQLite) | No `pgvector`; similarity is lexical + taxonomy-weighted, not embedding-based. Strong explanations, weaker pure-paraphrase recall. |
+| Redis + Horizon queues | Lazy drain on request | No background worker; queues advance when a request arrives. Fine at test scale, would need a real queue at volume. |
+| Row-level security (DB engine) | Application-level `tenant_id` predicates | Enforced in code + verified by a runtime probe, not by the database engine itself. |
+| Inertia + Vue 3 | Hono JSX SSR + declarative client JS | Server-rendered pages with no SPA build; interactions are form/ajax actions. |
+| Laravel/PHP | Hono/TypeScript | Whole different runtime. |
 
 ## AI Integration & Multi-LLM Provider Management (Part 11)
 
@@ -154,16 +217,46 @@ src/
     api.ts           /api/ai provider, model, routing, usage, logs, run
   pages/             dashboard, jobs, candidates, pipeline, interviews,
                      offers/onboarding/pools, analytics/comms/manager, ops,
-                     ai (7 screens), spec
+                     ai (7 screens), phases (taxonomy, screening, run,
+                     jd, board, compliance), spec
+  lib/               v3.0 services
+    taxonomy.ts      governed taxonomy: versions, graph load, matcher,
+                     coverage, recommend, suggestion approval
+    evidence.ts      N1 span extraction + verifySpan + experience union
+    screening.ts     6-dimension advisory engine, knock-outs, decide gate
+    jd.ts            JD validation, requirement extraction, diff, coverage
+    pipeline.ts      12-stage board, LEGACY_MAP, transition rules, notices
+    compliance.ts    impact ratio, 7-step erasure, breach/processor/region
+  api/phases.ts      ~40 phase endpoints behind a shared error guard
 migrations/          0001_core.sql · 0002_ops.sql · 0003_ai.sql
+                     0004_phases.sql · 0005_taxonomy_seed.sql
+                     0006_phase_support.sql
 seed.sql             900 statements, 66 candidates, 70 applications, 8 requisitions
 tests/api.test.mjs   79 ATS acceptance tests
 tests/ai.test.mjs    80 AI acceptance tests
+tests/phases.test.mjs 147 phase acceptance tests (Phases 1–7)
 ```
 
-**46 tables** with foreign keys. Every state change writes `audit_events` with actor, timestamp,
+**76 tables** with foreign keys. Every state change writes `audit_events` with actor, timestamp,
 previous value, new value and reason. AI configuration changes write `ai_audit`; AI calls write
 `ai_requests` with real token counts and latency.
+
+### Bug found by the phase suite (worth recording)
+
+The first run of `tests/phases.test.mjs` passed 146/147; a second consecutive run failed
+differently. That was the suite earning its keep twice:
+
+1. **Version numbering collision.** `createVersion` derived the next version from
+   `active.version + 1`. After a rollback the active version can be *lower* than an already-existing
+   superseded version, so the insert collided with `UNIQUE(version)` and the endpoint returned 500.
+   Fixed to derive from `SELECT COALESCE(MAX(version), 0)`.
+2. **Draft cloning dropped every edge.** `createVersion` cloned nodes and synonyms but not
+   `taxonomy_edges`, so publishing a draft silently produced a taxonomy with **zero weighted
+   relations** and coverage collapsed. Fixed by cloning edges and remapping their endpoints through
+   each node's stable `(kind, code)` identity, since node ids change on clone.
+
+Both were only visible on a *second* run, against accumulated state. A single green run would have
+shipped them.
 
 ## Key design decisions
 
@@ -204,6 +297,24 @@ the app never claims a posting went live where it did not.
   new model requires running `ollama pull` on the host that serves it.
 - Azure OpenAI deployment names are entered as the model ID; automatic deployment enumeration is not
   performed because Azure's management API is a separate surface from the inference API.
+
+### v3.0 phase gaps (stated, not hidden)
+
+- **Similarity is lexical, not vector.** D1 has no `pgvector`. Taxonomy-weighted term matching plus
+  synonym/equivalence expansion replaces embedding distance. This misses pure paraphrase recall.
+- **No background worker.** Resume queue, retention sweeps and notices advance on request. At volume
+  this needs a real queue (Cloudflare Queues / Durable Objects).
+- **Tenant isolation is application-enforced**, verified by a runtime probe — not by database
+  row-level security.
+- **Screening confidence is heuristic.** Thresholds (3 evidence rows, 55% coverage) are calibrated
+  judgement, not statistically fitted. They route to `manual_review` conservatively rather than
+  claiming precision.
+- **Adverse impact needs volume to mean anything.** The 0.8 four-fifths rule suppresses cells below
+  `MIN_CELL_SIZE = 5`; with the seeded dataset most groups report "insufficient data" — which is the
+  honest answer, not a passing grade.
+- **Erasure is logical, not physical.** Resume bodies and profile fields are purged and anonymised;
+  audit rows are retained deliberately so the deletion is provable. Backup rotation is out of reach
+  on D1.
 
 ## Out of scope (per spec §7)
 

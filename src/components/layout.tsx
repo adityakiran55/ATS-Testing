@@ -19,6 +19,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: '/jobs', label: 'Requisitions', icon: 'fa-briefcase', perm: 'job.read' },
       { href: '/pipeline', label: 'Pipeline', icon: 'fa-diagram-project', perm: 'application.read' },
+      { href: '/board', label: 'Stage board', icon: 'fa-table-columns', perm: 'application.read' },
       { href: '/distribution', label: 'Job distribution', icon: 'fa-bullhorn', perm: 'distribution.read' }
     ]
   },
@@ -26,6 +27,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: 'Candidates',
     items: [
       { href: '/candidates', label: 'Talent search', icon: 'fa-magnifying-glass', perm: 'candidate.search' },
+      { href: '/taxonomy', label: 'Skill taxonomy', icon: 'fa-sitemap', perm: 'candidate.read' },
       { href: '/candidates/duplicates', label: 'Duplicate review', icon: 'fa-clone', perm: 'candidate.merge', alert: true },
       { href: '/pools', label: 'Talent pools', icon: 'fa-layer-group', perm: 'pool.read' },
       { href: '/communications', label: 'Communications', icon: 'fa-envelope', perm: 'message.read' }
@@ -34,6 +36,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: 'Selection',
     items: [
+      { href: '/screening', label: 'Screening queue', icon: 'fa-magnifying-glass-chart', perm: 'application.read' },
       { href: '/interviews', label: 'Interviews', icon: 'fa-calendar-check', perm: 'interview.read' },
       { href: '/manager', label: 'Manager review', icon: 'fa-user-check', perm: 'manager.review' },
       { href: '/offers', label: 'Offers', icon: 'fa-file-signature', perm: 'offer.read' },
@@ -44,6 +47,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: 'Operations',
     items: [
       { href: '/sla', label: 'SLA & aging', icon: 'fa-stopwatch', perm: 'sla.read' },
+      { href: '/compliance', label: 'Compliance', icon: 'fa-scale-balanced', perm: 'audit.read' },
       { href: '/automation', label: 'Automation', icon: 'fa-bolt', perm: 'automation.read' },
       { href: '/ai', label: 'AI integration', icon: 'fa-robot', perm: 'ai.read' },
       { href: '/settings', label: 'Settings', icon: 'fa-gear', perm: 'admin.settings' },

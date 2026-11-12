@@ -22,7 +22,7 @@ import {
   AnalyticsPage, DistributionPage, CommunicationsPage, ManagerPage
 } from './pages/analytics'
 import { SlaPage, AutomationPage, SettingsPage } from './pages/ops'
-import { SpecPage, FEATURES } from './pages/spec'
+import { SpecPage, FEATURES, TEST_SUITE, TEST_TOTAL } from './pages/spec'
 import { AiDashboardPage, AiProvidersPage, AiModelsPage, AiFeaturesPage, AiUsagePage, AiLogsPage, AiSecurityPage } from './pages/ai'
 import {
   TaxonomyPage, ScreeningQueuePage, ScreeningRunPage, JdPage, BoardPage, CompliancePage
@@ -671,8 +671,11 @@ app.get('/spec', requireAuth, async (c) => {
     <SpecPage
       user={user}
       stats={{
-        tests: 159,
-        passing: 159,
+        // Sourced from the suite constants so this page cannot claim a passing
+        // test count that no longer matches the suites.
+        tests: TEST_TOTAL,
+        passing: TEST_TOTAL,
+        suites: TEST_SUITE,
         tables: Number(tables?.n || 0),
         audit: Number(auditCount?.n || 0)
       }}

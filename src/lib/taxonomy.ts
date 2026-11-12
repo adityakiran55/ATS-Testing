@@ -89,7 +89,13 @@ export const createVersion = async (
   opts: { notes?: string; actorId?: number | null }
 ) => {
   const active = await loadActiveVersion(db)
-  const next = (active.version || 0) + 1
+  // Number from the highest version that exists, NOT from the active one: after a
+  // rollback the active version can be lower than a superseded version, and
+  // deriving from it would collide with UNIQUE(version).
+  const highest = await db
+    .prepare(`SELECT COALESCE(MAX(version), 0) AS mx FROM taxonomy_versions`)
+    .first<any>()
+  const next = Number(highest?.mx || 0) + 1
   const res = await db
     .prepare(
       `INSERT INTO taxonomy_versions (version, status, notes, created_by, created_at)
@@ -117,6 +123,23 @@ export const createVersion = async (
            JOIN taxonomy_nodes nn ON nn.version_id = ? AND nn.kind = on_node.kind AND nn.code = on_node.code`
       )
       .bind(active.id, newId)
+      .run()
+    // Edges must be cloned too, or a published draft silently loses every
+    // weighted relation (role→skill, skill→tool, …) and coverage collapses.
+    // Edge endpoints are node ids, which change on clone, so remap them via
+    // the stable (kind, code) identity of each node.
+    await db
+      .prepare(
+        `INSERT INTO taxonomy_edges (version_id, from_id, to_id, relation, weight)
+         SELECT ?, new_from.id, new_to.id, e.relation, e.weight
+           FROM taxonomy_edges e
+           JOIN taxonomy_nodes old_from ON old_from.id = e.from_id AND old_from.version_id = ?
+           JOIN taxonomy_nodes old_to   ON old_to.id   = e.to_id   AND old_to.version_id = ?
+           JOIN taxonomy_nodes new_from ON new_from.version_id = ? AND new_from.kind = old_from.kind AND new_from.code = old_from.code
+           JOIN taxonomy_nodes new_to   ON new_to.version_id   = ? AND new_to.kind   = old_to.kind   AND new_to.code   = old_to.code
+          WHERE e.version_id = ?`
+      )
+      .bind(newId, active.id, active.id, newId, newId, active.id)
       .run()
   }
 
