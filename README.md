@@ -13,7 +13,7 @@ Built on **Hono + Cloudflare Workers/Pages + D1**.
 | | |
 |---|---|
 | Build | ✅ `npm run build` (605 kB worker, 157 kB gzip, 112 modules) |
-| Tests | ✅ `npm test` — **306/306 passing** (79 ATS + 80 AI + 147 phases) |
+| Tests | ⚠️ **303/306 passing** — 79/79 ATS · 77/80 AI · 147/147 phases. The 3 AI failures are `no_provider` on a freshly reset database; see *AI suite state* under Known gaps. |
 | Pages | ✅ All 31 routes render 200 |
 | Database | 76 tables · 6 migrations · 138 audit events in the seeded instance |
 | Deployment | ⏸ **Awaiting user choice** between `cf-byok-deploy` (own Cloudflare account) and `gsk-hosted-deploy` (Genspark-managed) |
@@ -297,6 +297,26 @@ the app never claims a posting went live where it did not.
   new model requires running `ollama pull` on the host that serves it.
 - Azure OpenAI deployment names are entered as the model ID; automatic deployment enumeration is not
   performed because Azure's management API is a separate surface from the inference API.
+
+### AI suite state — 3 failing, cause identified but not yet fixed
+
+`tests/ai.test.mjs` reports **77/80** on a freshly reset database (`npm run db:reset`). The three
+failures are: *block policy refuses external call carrying contact details*, *external call refused
+while disabled*, and *gateway attempts are recorded with a status*. All three return
+`{"error":"no_provider"}` instead of the refusal or gateway-attempt record they assert on.
+
+What the data shows: after a reset, all **12 providers have `enabled = 0`** (anthropic carries a
+sealed key, `has_key = 1`, but is not enabled). The three assertions expect a configured provider so
+the gateway can be driven far enough to hit the PII gate and write an attempt row. With no provider
+enabled the gateway short-circuits at `no_provider` before reaching either code path, so the call is
+refused for the *wrong* reason and no attempt is logged.
+
+Earlier in this session the same suite reported 80/80 against a database where a provider had been
+left enabled by previous runs. The suite therefore depends on provider-enabled state that `db:reset`
+does not restore — either the seed should enable a provider with a key, or the suite should enable one
+itself before those assertions. **I have not determined which**, so this is recorded as an open defect
+rather than quietly reordered or skipped. The feature-level behaviour being guarded is unchanged:
+no key ships with the repo, and AI still fails closed.
 
 ### v3.0 phase gaps (stated, not hidden)
 
